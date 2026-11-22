@@ -14,26 +14,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 确认补丁 jar 存在
+      - name: 选取最新补丁 jar（数字前缀最大者）
         run: |
-          ls -la elytra-hopper-lite-PATCHED.jar
-          test -s elytra-hopper-lite-PATCHED.jar
+          JAR=$(ls [0-9]*_elytra-hopper-lite-PATCHED.jar | sort -V | tail -1)
+          echo "使用: $JAR"
+          test -s "$JAR"
+          echo "JAR=$JAR" >> "$GITHUB_ENV"
 
       - name: 发布或更新 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
-          TITLE="Elytra Hopper Lite — 补丁版 v5 (三重落地检测: 状态+onGround+脚下方块 + 20 tick 节流)"
+          TITLE="Elytra Hopper Lite — 补丁版 (文件名数字=版本, 当前 5=三重落地检测)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release 已存在: $TAG，更新标题、说明与附件"
             gh release edit "$TAG" --title "$TITLE" --notes-file PATCH_NOTES.md
-            gh release upload "$TAG" elytra-hopper-lite-PATCHED.jar --clobber
+            gh release upload "$TAG" "$JAR" --clobber
           else
             gh release create "$TAG" \
               --title "$TITLE" \
               --notes-file PATCH_NOTES.md \
               --target main \
-              elytra-hopper-lite-PATCHED.jar
+              "$JAR"
           fi
           echo "Release 就绪: $TAG"

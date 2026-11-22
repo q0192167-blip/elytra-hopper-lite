@@ -1,3 +1,0 @@
-total 8
-drwxr-xr-x 2 runner runner 4096 Nov 22 16:44 .
-drwxr-xr-x 7 runner runner 4096 Nov 22 16:44 ..
