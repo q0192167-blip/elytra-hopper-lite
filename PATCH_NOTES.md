@@ -1,8 +1,32 @@
 # Elytra Hopper Lite — 补丁版说明
 
-## 当前版本：v6（边沿 + onGround + 闩锁，修复空中抽搐）
+## 当前版本：v8（落地电平 + onGround + 冷却节流，修复"只跳一次就卡死"）
 
-文件名：`6_elytra-hopper-lite-PATCHED.jar`（数字前缀 = 版本号）
+文件名：`8_elytra-hopper-lite-PATCHED.jar`（数字前缀 = 版本号）
+
+> 请下载**数字前缀最大**的那个 jar，即 `8_elytra-hopper-lite-PATCHED.jar`。旧版本（1~7）均有已知缺陷，不再建议使用。
+
+## v8 修复了什么（重要）
+
+v7 虽然修好了崩溃，但又出现"只跳一次就不动了 / 变回手动"——根因是 **awaitingRecast 闩锁死锁**：
+
+- 落地那一刻触发重开 → 上闩锁 `awaitingRecast=true`，同时 `previousFallFlying` 被置 `false`
+- 如果这次起飞没被认可（服务器把 `fallFlying` 切回 `false`），闩锁态"只有 `fallFlying=true` 才解锁"永远不满足 → **永久锁死**
+- 只能松开跳跃走 reset 重新武装 → 表现就是"手动、只跳一次"
+
+v8 彻底移除边沿 + 闩锁，改成最朴素的**落地电平检测**：
+
+```
+如果  没在飞(!fallFlying) 且 在地面(onGround) 且 冷却结束(cooldown==0)
+    -> recastFlight() 重开, 上 20 tick 冷却
+松开跳跃 / 前置不满足 -> 立即 reset 停止
+```
+
+- **不再死锁**：只要还按着跳跃、人在地面，冷却一结束就重试，不依赖任何边沿/闩锁
+- **不抽搐**：`onGround` 保证空中被切回时不重开；20 tick 冷却保证最多每秒一次
+- **松开即停**：松开跳跃立刻 reset
+
+状态机模拟器 4 个场景全部通过（正常循环 / 起飞被拒稳定重试 / 空中切回 0 次重开 / 松开即停），字节码 owner 全部为 `LocalPlayer`（无 v6 的 NoSuchMethodError 隐患）。
 
 ## 这个模组做什么
 
@@ -60,7 +84,9 @@ else if (!fallFlying 且 上一帧在飞 且 onGround 且 冷却结束):
 | v3 | 长按电平检测 | 状态切回时横跳 |
 | v4 | 边沿 + 闩锁（无 onGround） | 空中切回误判成落地 |
 | v5 | 状态 + onGround + 脚下方块 | 脚下方块空中恒真 → 空中抽搐 |
-| **v6** | **边沿 + onGround + 闩锁** | 当前版本 |
+| v6 | 边沿 + onGround + 闩锁 | 空中抽搐修好，但 owner 写错崩溃 |
+| v7 | v6 + owner 改 LocalPlayer | 崩溃修好，但闩锁死锁 → 只跳一次 |
+| **v8** | **落地电平 + onGround + 20t 冷却，无闩锁** | **当前版本** |
 
 ## 使用
 

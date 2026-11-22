@@ -26,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
-          TITLE="Elytra Hopper Lite — 补丁版 v7 (修复NoSuchMethodError崩溃, owner改LocalPlayer)"
+          TITLE="Elytra Hopper Lite — 补丁版 v8 (修复只跳一次就卡死, 落地电平检测无闩锁)"
           # 删除旧 Release 及其 tag/附件，保证附件唯一
           gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$TAG" \
