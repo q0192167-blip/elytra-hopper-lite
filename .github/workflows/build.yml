@@ -24,6 +24,16 @@ jobs:
         with:
           name: elytra-hopper-lite
           path: build/libs/*.jar
+      - name: Commit jar
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p jars
+          cp build/libs/*.jar jars/ || true
+          git config user.email ci@local
+          git config user.name ci
+          git add -f jars
+          git commit -m "jar $(date +%s)" || true
+          git push
       - name: Commit log
         if: steps.build.outcome != 'success'
         run: |
