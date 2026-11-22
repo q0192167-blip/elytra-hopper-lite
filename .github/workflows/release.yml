@@ -1,5 +1,5 @@
 name: release
-# 每次推送到 main 时，把已构建好的补丁 jar 发布为 Release
+# 每次推送到 main 时，把已构建好的补丁 jar 发布/更新为 Release
 on:
   push:
     branches: [main]
@@ -19,19 +19,21 @@ jobs:
           ls -la elytra-hopper-lite-PATCHED.jar
           test -s elytra-hopper-lite-PATCHED.jar
 
-      - name: 发布 Release
+      - name: 发布或更新 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
-          # 若 tag 已存在则复用，否则新建
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          TITLE="Elytra Hopper Lite — 补丁版 v2 (延迟重开 + 持续循环 + 20 tick 冷却)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release 已存在: $TAG，更新标题、说明与附件"
+            gh release edit "$TAG" --title "$TITLE" --notes-file PATCH_NOTES.md
+            gh release upload "$TAG" elytra-hopper-lite-PATCHED.jar --clobber
+          else
             gh release create "$TAG" \
-              --title "Elytra Hopper Lite — 补丁版 (落地重开 + 20 tick 冷却)" \
+              --title "$TITLE" \
               --notes-file PATCH_NOTES.md \
               --target main \
               elytra-hopper-lite-PATCHED.jar
-            echo "Release 已创建: $TAG"
-          else
-            echo "Release 已存在: $TAG，跳过"
           fi
+          echo "Release 就绪: $TAG"
