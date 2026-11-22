@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "elytra_hopper_lite",
+  "version": "1.0.0",
+  "name": "Elytra Hopper Lite",
+  "description": "落地后只重开一次滑翔，带冷却，避免高频状态切换。",
+  "authors": ["DSH"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.dsh.elytrahopper.ElytraHopperLite"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~26.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
