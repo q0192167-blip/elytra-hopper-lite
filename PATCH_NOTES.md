@@ -67,3 +67,18 @@ else if (!fallFlying 且 上一帧在飞 且 onGround 且 冷却结束):
 把 jar 放进 mods 文件夹。空中滑翔、落地瞬间按住跳跃键即可自动重开；松开跳跃停止。
 
 注意：这是客户端模组，纯客户端运行，服务器无需安装。但服务器反作弊对"落地重开鞘翅"的判定是服务端权威——若服务器主动拒绝起飞，闩锁会让它停住而不再抽搐，此时松开重按可重新武装。
+
+## v7 热修复（崩溃修复）
+
+v6 进游戏直接崩溃，日志堆栈：
+
+```
+java.lang.NoSuchMethodError: 'boolean net.minecraft.world.entity.Entity.isFallFlying()'
+    at com.santr.elytrahopper.ElytraHopperClient.recastIfStoppedFallFlying
+```
+
+**根因**：v5/v6 的 ASM 补丁把 `isFallFlying()`、`onGround()`、`getDeltaMovement()` 的调用 owner 硬编码成了 `Entity`（`net/minecraft/world/entity/Entity`）。但这些方法的真实声明类不在 Entity 上（`isFallFlying` 在 `LivingEntity`），且原版字节码里所有调用的 owner 都是 `LocalPlayer`。Sinytra Connector 按"原版 jar 出现过的引用组合"建立映射表，`Entity.isFallFlying` 这个组合从未在原版出现，未被重映射 → 运行时方法不存在 → 崩溃。
+
+**修复**：v7 把三处 owner 全部改回 `LocalPlayer`，与原版字节码逐字节一致。交叉验证：补丁 class 相对原版只新增两个引用——自有的 `hopCooldown` 字段（安全）和 `LocalPlayer.onGround`（LocalPlayer 继承链含 Entity.onGround，合法）。
+
+**教训**：给已编译 jar 打 ASM 字节码补丁时，所有对 MC 类的引用必须与原始字节码的 owner/name/desc 完全一致，不能凭官方映射自行改 owner——Connector/NeoForge 的映射表只覆盖原版出现过的引用组合。
