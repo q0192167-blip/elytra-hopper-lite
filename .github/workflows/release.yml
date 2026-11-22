@@ -38,4 +38,12 @@ jobs:
               --target main \
               "$JAR"
           fi
+          # 清理旧命名的 jar 附件，只保留当前版本
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG/assets" \
+            --jq '.[] | select(.name | endswith(".jar")) | .name' | while read -r asset; do
+            if [ "$asset" != "$JAR" ]; then
+              gh release delete-asset "$TAG" "$asset" -y
+              echo "已删除旧附件: $asset"
+            fi
+          done
           echo "Release 就绪: $TAG"
