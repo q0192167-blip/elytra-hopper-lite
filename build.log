@@ -1,13 +1,3 @@
-
-Welcome to Gradle 9.1.0!
-
-Here are the highlights of this release:
- - Full Java 25 support
- - Native task graph visualization
- - Enhanced console output
-
-For more details see https://docs.gradle.org/9.1.0/release-notes.html
-
 To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
 Daemon will be stopped at the end of the build 
 
@@ -15,7 +5,7 @@ Daemon will be stopped at the end of the build
 Fabric Loom: 1.11.8
 Previous process has disowned the lock due to abrupt termination.
 Found existing cache lock file (ACQUIRED_PREVIOUS_OWNER_DISOWNED), rebuilding loom cache. This may have been caused by a failed or canceled build.
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1795365461902.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1795365871727.json
 
 FAILURE: Build failed with an exception.
 
@@ -209,7 +199,7 @@ Caused by: java.lang.RuntimeException: Failed to setup Minecraft, java.lang.Runt
 	at org.gradle.internal.event.ListenerBroadcast.dispatch(ListenerBroadcast.java:160)
 	at org.gradle.internal.event.ListenerBroadcast.dispatch(ListenerBroadcast.java:37)
 	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92)
-	at jdk.proxy1/jdk.proxy1.$Proxy69.afterEvaluate(Unknown Source)
+	at jdk.proxy1/jdk.proxy1.$Proxy64.afterEvaluate(Unknown Source)
 	at org.gradle.configuration.project.LifecycleProjectEvaluator$NotifyAfterEvaluate$1.execute(LifecycleProjectEvaluator.java:247)
 	at org.gradle.configuration.project.LifecycleProjectEvaluator$NotifyAfterEvaluate$1.execute(LifecycleProjectEvaluator.java:244)
 	at org.gradle.api.internal.project.DefaultProject.stepEvaluationListener(DefaultProject.java:1584)
@@ -227,4 +217,4 @@ Caused by: java.lang.RuntimeException: Failed to find official mojang mappings f
 	... 177 more
 
 
-BUILD FAILED in 20s
+BUILD FAILED in 12s
