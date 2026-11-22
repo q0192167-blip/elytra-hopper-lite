@@ -24,7 +24,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
-          TITLE="Elytra Hopper Lite — 补丁版 v3 (长按跳跃监测落地 + 20 tick 节流 + 松开即停)"
+          TITLE="Elytra Hopper Lite — 补丁版 v4 (边沿检测+闩锁 + 长按跳跃开关 + 20 tick 节流, 杜绝状态横跳)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release 已存在: $TAG，更新标题、说明与附件"
             gh release edit "$TAG" --title "$TITLE" --notes-file PATCH_NOTES.md
