@@ -26,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
-          TITLE="Elytra Hopper Lite — 补丁版 (文件名数字=版本, 当前 5=三重落地检测)"
+          TITLE="Elytra Hopper Lite — 补丁版 v6 (边沿+onGround+闩锁, 修复空中抽搐)"
           # 删除旧 Release 及其 tag/附件，保证附件唯一
           gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$TAG" \
