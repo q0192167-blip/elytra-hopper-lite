@@ -1,5 +1,5 @@
 name: release
-# 每次推送到 main 时，把已构建好的补丁 jar 发布/更新为 Release
+# 每次推送到 main 时，把数字前缀最大的补丁 jar 发布为 Release（旧 Release 整体删除重建，附件保持唯一）
 on:
   push:
     branches: [main]
@@ -21,29 +21,17 @@ jobs:
           test -s "$JAR"
           echo "JAR=$JAR" >> "$GITHUB_ENV"
 
-      - name: 发布或更新 Release
+      - name: 重建 Release（先删后建，附件唯一）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
           TITLE="Elytra Hopper Lite — 补丁版 (文件名数字=版本, 当前 5=三重落地检测)"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release 已存在: $TAG，更新标题、说明与附件"
-            gh release edit "$TAG" --title "$TITLE" --notes-file PATCH_NOTES.md
-            gh release upload "$TAG" "$JAR" --clobber
-          else
-            gh release create "$TAG" \
-              --title "$TITLE" \
-              --notes-file PATCH_NOTES.md \
-              --target main \
-              "$JAR"
-          fi
-          # 清理旧命名的 jar 附件，只保留当前版本
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG/assets" \
-            --jq '.[] | select(.name | endswith(".jar")) | .name' | while read -r asset; do
-            if [ "$asset" != "$JAR" ]; then
-              gh release delete-asset "$TAG" "$asset" -y
-              echo "已删除旧附件: $asset"
-            fi
-          done
+          # 删除旧 Release 及其 tag/附件，保证附件唯一
+          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "$TITLE" \
+            --notes-file PATCH_NOTES.md \
+            --target main \
+            "$JAR"
           echo "Release 就绪: $TAG"
