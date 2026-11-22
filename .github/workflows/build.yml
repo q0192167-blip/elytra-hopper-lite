@@ -28,10 +28,12 @@ jobs:
         if: steps.build.outcome == 'success'
         run: |
           mkdir -p jars
-          cp build/libs/*.jar jars/ || true
+          ls -laR build/libs > libs.txt 2>&1 || true
+          find build -name '*.jar' -exec cp {} jars/ \; || true
+          ls -la jars > jars.txt 2>&1 || true
           git config user.email ci@local
           git config user.name ci
-          git add -f jars
+          git add -f jars libs.txt jars.txt
           git commit -m "jar $(date +%s)" || true
           git push
       - name: Commit log
