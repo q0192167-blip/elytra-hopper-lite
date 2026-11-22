@@ -3,20 +3,21 @@ import org.objectweb.asm.tree.*;
 import java.nio.file.*;
 
 /**
- * v5：三重落地检测（状态 + onGround + 脚下方块）+ 20 tick 冷却
+ * v5: triple landing detection (state + onGround + block below) + 20-tick cooldown
  *
- * 修复 v4 的坑：
- *  - v4 用边沿检测+闩锁，状态被切回时闩锁永久卡死、短飞行边沿丢失卡地面。
- *  - v5 引入 grounded 维度区分"真落地"和"空中被切回"：
+ * Fixes the pitfalls of v4:
+ *  - v4 used edge detection + latch; when the state was flipped back the latch could stay locked forever,
+ *    and a short flight could lose the edge and get stuck on the ground.
+ *  - v5 introduces a `grounded` dimension to distinguish a "real landing" from "flipped back in the air":
  *      grounded = player.onGround() || !level.getBlockState(blockPos.below()).isAir()
- *    只有当 !fallFlying && grounded && 冷却结束 时才 recast。
- *    "空中被服务器切回"时 fallFlying=false 但 grounded=false -> 不触发，杜绝横跳。
+ *    Only recast when !fallFlying && grounded && cooldown is over.
+ *    When "flipped back by the server in the air", fallFlying=false but grounded=false -> no trigger, preventing flapping.
  *
- * 26.1.2 client.jar 已确认是 Mojang 官方映射可读名，直接硬编码调用，无需反射。
+ * 26.1.2 client.jar confirmed to use Mojang official mapping readable names; hard-coded calls, no reflection needed.
  *
- * 逻辑：
- *   前置失败/松开跳跃 -> 重置停止
- *   冷却递减
+ * Logic:
+ *   precondition failed / jump released -> reset and stop
+ *   decrement cooldown
  *   fallFlying = player.isFallFlying()          -> local 1
  *   grounded = player.onGround()
  *              || !player.level().getBlockState(player.blockPosition().below()).isAir()  -> local 2
@@ -40,7 +41,7 @@ public class Patcher5 {
         byte[] orig = Files.readAllBytes(Paths.get(args[0]));
         int realMajor = ((orig[6] & 0xFF) << 8) | (orig[7] & 0xFF);
         byte[] tmp = orig.clone();
-        tmp[6] = 0; tmp[7] = 61; // 临时降到 Java17 让 ASM 能读
+        tmp[6] = 0; tmp[7] = 61; // temporarily lower to Java17 so ASM can read it
 
         ClassReader cr = new ClassReader(tmp);
         ClassNode cn = new ClassNode();
@@ -62,7 +63,7 @@ public class Patcher5 {
                 patched = true;
             }
         }
-        if (!patched) throw new RuntimeException("目标方法未找到");
+        if (!patched) throw new RuntimeException("target method not found");
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES) {
             @Override
@@ -76,7 +77,7 @@ public class Patcher5 {
         out[6] = (byte)((realMajor >> 8) & 0xFF);
         out[7] = (byte)(realMajor & 0xFF);
         Files.write(Paths.get(args[1]), out);
-        System.out.println("补丁完成 major=" + realMajor + " (v5 三重检测版)");
+        System.out.println("patch complete major=" + realMajor + " (v5 triple-detection)");
     }
 
     static InsnList buildBody() {
@@ -90,7 +91,7 @@ public class Patcher5 {
         LabelNode L_noRecast = new LabelNode();
         LabelNode L_skipMove = new LabelNode();
 
-        // ===== 前置检查 =====
+        // ===== preconditions =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new JumpInsnNode(Opcodes.IFNULL, L_reset));
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -119,12 +120,12 @@ public class Patcher5 {
 
         il.add(L_guardPass);
 
-        // ===== 长按跳跃总开关 =====
+        // ===== hold-jump master switch =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CLS, "canRecastFlight", "(" + LP_DESC + ")Z", false));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_reset));
 
-        // ===== 冷却递减 =====
+        // ===== decrement cooldown =====
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
         il.add(new JumpInsnNode(Opcodes.IFLE, L_skipDec));
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
@@ -138,13 +139,13 @@ public class Patcher5 {
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, ENT, "isFallFlying", "()Z", false));
         il.add(new VarInsnNode(Opcodes.ISTORE, 1));
 
-        // ===== grounded 计算 -> local 2 =====
+        // ===== grounded computation -> local 2 =====
         // grounded = onGround() || !level().getBlockState(blockPosition().below()).isAir()
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, ENT, "onGround", "()Z", false));
         il.add(new JumpInsnNode(Opcodes.IFNE, L_groundTrue)); // onGround=true -> grounded=true
 
-        // onGround=false, 再查脚下方块：!isAir() -> grounded=true
+        // onGround=false, then check the block below: !isAir() -> grounded=true
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, ENT, "level", "()" + "L" + LVL + ";", false));
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -152,9 +153,9 @@ public class Patcher5 {
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, BP, "below", "()L" + BP + ";", false));
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LVL, "getBlockState", "(L" + BP + ";)L" + BS + ";", false));
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, BS, "isAir", "()Z", false));
-        il.add(new JumpInsnNode(Opcodes.IFEQ, L_groundTrue)); // isAir=false(有方块) -> grounded=true
+        il.add(new JumpInsnNode(Opcodes.IFEQ, L_groundTrue)); // isAir=false (block present) -> grounded=true
 
-        // 两处都为 false -> grounded=false
+        // both false -> grounded=false
         il.add(new InsnNode(Opcodes.ICONST_0));
         il.add(new VarInsnNode(Opcodes.ISTORE, 2));
         il.add(new JumpInsnNode(Opcodes.GOTO, L_groundEnd));
@@ -167,11 +168,11 @@ public class Patcher5 {
 
         // ===== if (!fallFlying && grounded && hopCooldown==0) recast =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
-        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));  // 飞行中 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));  // airborne -> no recast
         il.add(new VarInsnNode(Opcodes.ILOAD, 2));
-        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));  // 未落地 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));  // not landed -> no recast
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
-        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));  // 冷却中 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));  // cooling down -> no recast
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CLS, "recastFlight", "(" + LP_DESC + ")V", false));
         il.add(new IntInsnNode(Opcodes.BIPUSH, 20));
@@ -186,7 +187,7 @@ public class Patcher5 {
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "lastFlyingMovement", VEC_DESC));
         il.add(L_skipMove);
 
-        // ===== 状态更新 =====
+        // ===== state update =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "previousFallFlying", "Z"));
         il.add(new InsnNode(Opcodes.RETURN));

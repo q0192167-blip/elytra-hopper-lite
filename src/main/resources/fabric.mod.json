@@ -3,7 +3,7 @@
   "id": "elytra_hopper_lite",
   "version": "1.0.0",
   "name": "Elytra Hopper Lite",
-  "description": "落地后只重开一次滑翔，带冷却，避免高频状态切换。",
+  "description": "Re-opens gliding once after landing, with a cooldown to avoid high-frequency state switching.",
   "authors": ["DSH"],
   "license": "MIT",
   "environment": "client",

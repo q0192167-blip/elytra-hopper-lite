@@ -3,31 +3,32 @@ import org.objectweb.asm.tree.*;
 import java.nio.file.*;
 
 /**
- * v6：修复 v5 空中抽搐 bug
+ * v6: fix the v5 airborne flapping bug
  *
- * v5 致命错误：grounded = onGround() || !脚下块.isAir()
- *    -> 空中滑翔时脚下就是地面, 脚下方块非空恒真 -> grounded 恒为 true
- *    -> 服务端每次把 fallFlying 切回 false, 立刻被误判为"落地" -> 开伞 -> 又切回 -> 抽搐
+ * v5 fatal error: grounded = onGround() || !blockBelow.isAir()
+ *    -> while gliding in the air the block below is the ground, so "block below non-air" is always true
+ *    -> grounded is always true
+ *    -> every time the server flips fallFlying back to false it is misjudged as "landed" -> open wings -> flipped back -> flap
  *
- * v6 修复：落地判据只用 onGround()（真正接触地面），并恢复原版的
- *    边沿检测 !fallFlying && previousFallFlying + awaitingRecast 闩锁。
+ * v6 fix: use only onGround() as the landing criterion (real ground contact), and restore the original
+ *    edge detection !fallFlying && previousFallFlying + awaitingRecast latch.
  *
- * 逻辑（每 tick）：
- *   前置失败/松开跳跃 -> reset
- *   冷却递减
+ * Logic (per tick):
+ *   precondition failed / jump released -> reset
+ *   decrement cooldown
  *   fallFlying = isFallFlying()          -> local 1
- *   onGround   = onGround()             -> local 2   (唯一落地判据)
+ *   onGround   = onGround()             -> local 2   (only landing criterion)
  *
- *   if (awaitingRecast) {                // 闩锁态
- *       if (fallFlying) awaitingRecast = false;   // 确认起飞 -> 解锁
- *       // 否则保持闩锁，绝不重试（防被切回后疯狂开伞）
+ *   if (awaitingRecast) {                // latch state
+ *       if (fallFlying) awaitingRecast = false;   // takeoff confirmed -> unlock
+ *       // otherwise keep the latch, never retry (prevent frantic re-opening after being flipped back)
  *   } else if (!fallFlying && previousFallFlying && onGround && hopCooldown==0) {
- *       recastFlight; awaitingRecast=true; hopCooldown=20;   // 真落地边沿 -> 重开一次
+ *       recastFlight; awaitingRecast=true; hopCooldown=20;   // real landing edge -> recast once
  *   }
  *   if (fallFlying) lastFlyingMovement = getDeltaMovement()
  *   previousFallFlying = fallFlying
  *
- * API 签名已在 26.1.2 client.jar 逐一确认, 直接硬编码。
+ * API signatures verified one by one in the 26.1.2 client.jar, hard-coded directly.
  */
 public class Patcher6 {
     static final String CLS = "com/santr/elytrahopper/ElytraHopperClient";
@@ -43,7 +44,7 @@ public class Patcher6 {
         byte[] orig = Files.readAllBytes(Paths.get(args[0]));
         int realMajor = ((orig[6] & 0xFF) << 8) | (orig[7] & 0xFF);
         byte[] tmp = orig.clone();
-        tmp[6] = 0; tmp[7] = 61; // 临时降到 Java17 让 ASM 能读
+        tmp[6] = 0; tmp[7] = 61; // temporarily lower to Java17 so ASM can read it
 
         ClassReader cr = new ClassReader(tmp);
         ClassNode cn = new ClassNode();
@@ -64,7 +65,7 @@ public class Patcher6 {
                 patched = true;
             }
         }
-        if (!patched) throw new RuntimeException("目标方法未找到");
+        if (!patched) throw new RuntimeException("target method not found");
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES) {
             @Override
@@ -78,7 +79,7 @@ public class Patcher6 {
         out[6] = (byte)((realMajor >> 8) & 0xFF);
         out[7] = (byte)(realMajor & 0xFF);
         Files.write(Paths.get(args[1]), out);
-        System.out.println("补丁完成 major=" + realMajor + " (v6 边沿+onGround+闩锁版)");
+        System.out.println("patch complete major=" + realMajor + " (v6 edge+onGround+latch)");
     }
 
     static InsnList buildBody() {
@@ -92,7 +93,7 @@ public class Patcher6 {
         LabelNode L_noRecast = new LabelNode();
         LabelNode L_skipMove = new LabelNode();
 
-        // ===== 前置检查 =====
+        // ===== preconditions =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new JumpInsnNode(Opcodes.IFNULL, L_reset));
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -121,12 +122,12 @@ public class Patcher6 {
 
         il.add(L_guardPass);
 
-        // ===== 长按跳跃总开关 =====
+        // ===== hold-jump master switch =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CLS, "canRecastFlight", "(" + LP_DESC + ")Z", false));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_reset));
 
-        // ===== 冷却递减 =====
+        // ===== decrement cooldown =====
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
         il.add(new JumpInsnNode(Opcodes.IFLE, L_skipDec));
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
@@ -137,19 +138,19 @@ public class Patcher6 {
 
         // ===== fallFlying -> local 1 =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, ENT, "isFallFlying", "()Z", false));
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LP, "isFallFlying", "()Z", false));
         il.add(new VarInsnNode(Opcodes.ISTORE, 1));
 
-        // ===== onGround -> local 2（唯一落地判据，去掉脚下方块）=====
+        // ===== onGround -> local 2 (only landing criterion, block-below removed) =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, ENT, "onGround", "()Z", false));
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LP, "onGround", "()Z", false));
         il.add(new VarInsnNode(Opcodes.ISTORE, 2));
 
-        // ===== 闩锁态判断 =====
+        // ===== latch state check =====
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "awaitingRecast", "Z"));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_notLocked));
 
-        // 闩锁中：只有 fallFlying=true 才解锁，否则保持闩锁不重试
+        // latched: only fallFlying=true unlocks, otherwise keep the latch and never retry
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_lockedStay));
         il.add(new InsnNode(Opcodes.ICONST_0));
@@ -157,16 +158,16 @@ public class Patcher6 {
         il.add(L_lockedStay);
         il.add(new JumpInsnNode(Opcodes.GOTO, L_noRecast));
 
-        // 非闩锁：落地边沿 + onGround + 冷却结束 -> 重开一次
+        // not latched: landing edge + onGround + cooldown over -> recast once
         il.add(L_notLocked);
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
-        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // 飞行中 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // airborne -> no recast
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "previousFallFlying", "Z"));
-        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));               // 非落地边沿 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));               // no landing edge -> no recast
         il.add(new VarInsnNode(Opcodes.ILOAD, 2));
-        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));               // 未真正落地 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));               // not really landed -> no recast
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
-        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // 冷却中 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // cooling down -> no recast
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CLS, "recastFlight", "(" + LP_DESC + ")V", false));
         il.add(new InsnNode(Opcodes.ICONST_1));
@@ -176,15 +177,15 @@ public class Patcher6 {
 
         il.add(L_noRecast);
 
-        // ===== if (fallFlying) lastFlyingMovement = getDeltaMovement() =====
+        // ===== momentum conservation: if (fallFlying) lastFlyingMovement = getDeltaMovement() =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_skipMove));
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, ENT, "getDeltaMovement", "()" + VEC_DESC, false));
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LP, "getDeltaMovement", "()" + VEC_DESC, false));
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "lastFlyingMovement", VEC_DESC));
         il.add(L_skipMove);
 
-        // ===== 状态更新 =====
+        // ===== state update =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "previousFallFlying", "Z"));
         il.add(new InsnNode(Opcodes.RETURN));

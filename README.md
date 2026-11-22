@@ -1,13 +1,13 @@
 # Elytra Hopper Lite
 
-落地后**只重开一次**滑翔，带 20 tick 冷却，避免高频切换被反作弊判定。
+Re-opens gliding **only once** after landing, with a 20-tick cooldown, to avoid high-frequency switching that anti-cheat may flag.
 
-## 行为
-- 落地 + 按住跳跃 → 自动跳起
-- 跳起后 2 tick 自动开一次滑翔
-- 开完冷却 20 tick（1 秒），期间绝不再动作
-- 落水自动收翅
-- 按键 `B` 开关
+## Behavior
+- Land + hold jump -> auto takeoff
+- 2 ticks after takeoff, gliding opens once automatically
+- After opening, a 20-tick (1 second) cooldown during which nothing happens
+- Wings auto-close in water
+- Press `B` to toggle on/off
 
-## 构建
-推到 GitHub，Actions 自动构建，产物在 Artifacts。
+## Build
+Push to GitHub, Actions builds automatically, artifacts are under Artifacts.

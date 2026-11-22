@@ -3,26 +3,26 @@ import org.objectweb.asm.tree.*;
 import java.nio.file.*;
 
 /**
- * v8：修复 v7 的"只跳一次就死锁 / 变手动"问题
+ * v8: fixes the v7 "jumps once then deadlocks / becomes manual" problem
  *
- * v7 根因（闩锁死锁）：
- *   落地边沿触发 -> recastFlight -> 设 awaitingRecast=true, previousFallFlying=false
- *   若服务端拒绝这次起飞(反作弊判定 / 落地瞬间状态未认可), fallFlying 保持 false
- *   -> 闩锁态 "只有 fallFlying=true 才解锁" 永远不满足 -> 永久卡死
- *   -> 只能松开跳跃走 reset 再武装 -> 表现就是"手动、只跳一次就不动"
+ * v7 root cause (latch deadlock):
+ *   Landing edge triggers recast -> sets awaitingRecast=true, previousFallFlying=false
+ *   If that takeoff is rejected by the server (anticheat / landing state not acknowledged), fallFlying stays false
+ *   -> latch state "unlock only when fallFlying=true" is never met -> permanent deadlock
+ *   -> the only way out is releasing jump to re-arm -> shows up as "manual, jumps once then stops"
  *
- * v8 修复：彻底移除 "边沿 + awaitingRecast 闩锁"，改为落地电平检测：
+ * v8 fix: completely remove "edge + awaitingRecast latch", switch to landing level detection:
  *   if (!fallFlying && onGround && hopCooldown==0) { recastFlight(); hopCooldown=20; }
  *
- * 为什么不再抽搐(v5/v2 的老问题)：
- *   1) onGround 判据：服务端在空中把 fallFlying 切回 false 时 onGround=false -> 不重开
- *   2) hopCooldown=20：两次重开至少间隔 1 秒，不可能每 tick 开伞收伞
- * 为什么不再死锁(v7 的老问题)：
- *   电平检测不依赖 previousFallFlying 边沿；落地后只要条件满足就会在冷却结束后重试
- * 为什么松开即停：
- *   canRecastFlight() 前置包含 jump 按键，松开 -> 走 reset 清空状态
+ * Why no more flapping (old v5/v2 problem):
+ *   1) onGround check: when the server flips fallFlying back while airborne, onGround=false -> no recast
+ *   2) hopCooldown=20: at least 1 second between recasts, cannot open/close wings every tick
+ * Why no more deadlock (old v7 problem):
+ *   Level detection does not depend on the previousFallFlying edge; once landed, it retries whenever conditions are met
+ * Why releasing jump stops:
+ *   canRecastFlight() precondition includes the jump key; releasing -> reset clears all state
  *
- * 所有对 MC 的方法引用 owner 一律保持 LocalPlayer（v6 崩溃教训）。
+ * All method references to MC classes keep LocalPlayer as owner (the v6 crash lesson).
  */
 public class Patcher8 {
     static final String CLS = "com/santr/elytrahopper/ElytraHopperClient";
@@ -37,7 +37,7 @@ public class Patcher8 {
         byte[] orig = Files.readAllBytes(Paths.get(args[0]));
         int realMajor = ((orig[6] & 0xFF) << 8) | (orig[7] & 0xFF);
         byte[] tmp = orig.clone();
-        tmp[6] = 0; tmp[7] = 61; // 临时降到 Java17 让 ASM 能读
+        tmp[6] = 0; tmp[7] = 61; // temporarily lower to Java17 so ASM can read it
 
         ClassReader cr = new ClassReader(tmp);
         ClassNode cn = new ClassNode();
@@ -58,7 +58,7 @@ public class Patcher8 {
                 patched = true;
             }
         }
-        if (!patched) throw new RuntimeException("目标方法未找到");
+        if (!patched) throw new RuntimeException("target method not found");
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES) {
             @Override
@@ -72,7 +72,7 @@ public class Patcher8 {
         out[6] = (byte)((realMajor >> 8) & 0xFF);
         out[7] = (byte)(realMajor & 0xFF);
         Files.write(Paths.get(args[1]), out);
-        System.out.println("补丁完成 major=" + realMajor + " (v8 落地电平+onGround+冷却节流版)");
+        System.out.println("patch complete major=" + realMajor + " (v8 landing-level + onGround + cooldown throttle)");
     }
 
     static InsnList buildBody() {
@@ -83,7 +83,7 @@ public class Patcher8 {
         LabelNode L_noRecast = new LabelNode();
         LabelNode L_skipMove = new LabelNode();
 
-        // ===== 前置检查 =====
+        // ===== preconditions =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new JumpInsnNode(Opcodes.IFNULL, L_reset));
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -98,7 +98,7 @@ public class Patcher8 {
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_reset));
         il.add(new JumpInsnNode(Opcodes.GOTO, L_guardPass));
 
-        // ===== RESET（松开跳跃 / 前置失败）=====
+        // ===== RESET (jump released / precondition failed) =====
         il.add(L_reset);
         il.add(new InsnNode(Opcodes.ICONST_0));
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "previousFallFlying", "Z"));
@@ -112,12 +112,12 @@ public class Patcher8 {
 
         il.add(L_guardPass);
 
-        // ===== 长按跳跃总开关（松开即走 reset）=====
+        // ===== hold-jump master switch (release goes to reset) =====
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CLS, "canRecastFlight", "(" + LP_DESC + ")Z", false));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_reset));
 
-        // ===== 冷却递减 =====
+        // ===== decrement cooldown =====
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
         il.add(new JumpInsnNode(Opcodes.IFLE, L_skipDec));
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
@@ -136,13 +136,13 @@ public class Patcher8 {
         il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LP, "onGround", "()Z", false));
         il.add(new VarInsnNode(Opcodes.ISTORE, 2));
 
-        // ===== 落地电平检测：!fallFlying && onGround && cooldown==0 -> 重开 =====
+        // ===== landing level detection: !fallFlying && onGround && cooldown==0 -> recast =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
-        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // 飞行中 -> 不重开
+        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // airborne -> no recast
         il.add(new VarInsnNode(Opcodes.ILOAD, 2));
-        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));               // 未在地面 -> 不重开(防空中切回抽搐)
+        il.add(new JumpInsnNode(Opcodes.IFEQ, L_noRecast));               // not on ground -> no recast (prevent airborne flap)
         il.add(new FieldInsnNode(Opcodes.GETSTATIC, CLS, "hopCooldown", "I"));
-        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // 冷却中 -> 不重开(节流)
+        il.add(new JumpInsnNode(Opcodes.IFNE, L_noRecast));               // cooling down -> no recast (throttle)
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
         il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, CLS, "recastFlight", "(" + LP_DESC + ")V", false));
         il.add(new IntInsnNode(Opcodes.BIPUSH, 20));
@@ -150,7 +150,7 @@ public class Patcher8 {
 
         il.add(L_noRecast);
 
-        // ===== 动量守恒：if (fallFlying) lastFlyingMovement = getDeltaMovement() =====
+        // ===== momentum conservation: if (fallFlying) lastFlyingMovement = getDeltaMovement() =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
         il.add(new JumpInsnNode(Opcodes.IFEQ, L_skipMove));
         il.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -158,7 +158,7 @@ public class Patcher8 {
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "lastFlyingMovement", VEC_DESC));
         il.add(L_skipMove);
 
-        // ===== 状态更新（保留字段，不再用于触发）=====
+        // ===== state update (fields kept, no longer used for triggering) =====
         il.add(new VarInsnNode(Opcodes.ILOAD, 1));
         il.add(new FieldInsnNode(Opcodes.PUTSTATIC, CLS, "previousFallFlying", "Z"));
         il.add(new InsnNode(Opcodes.RETURN));

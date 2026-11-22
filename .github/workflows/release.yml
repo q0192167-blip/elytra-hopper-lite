@@ -1,5 +1,6 @@
 name: release
-# 每次推送到 main 时，把数字前缀最大的补丁 jar 发布为 Release（旧 Release 整体删除重建，附件保持唯一）
+# On every push to main, publish the patched jar with the largest numeric prefix as a Release
+# (the old Release is deleted and rebuilt so the asset stays unique)
 on:
   push:
     branches: [main]
@@ -14,24 +15,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 选取最新补丁 jar（数字前缀最大者）
+      - name: Select latest patched jar (largest numeric prefix)
         run: |
           JAR=$(ls [0-9]*_elytra-hopper-lite-PATCHED.jar | sort -V | tail -1)
-          echo "使用: $JAR"
+          echo "Using: $JAR"
           test -s "$JAR"
           echo "JAR=$JAR" >> "$GITHUB_ENV"
 
-      - name: 重建 Release（先删后建，附件唯一）
+      - name: Rebuild Release (delete then create, single asset)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v1.0-patched"
-          TITLE="Elytra Hopper Lite — 补丁版 v8 (修复只跳一次就卡死, 落地电平检测无闩锁)"
-          # 删除旧 Release 及其 tag/附件，保证附件唯一
+          TITLE="Elytra Hopper Lite - Patched v8 (fix jumps-once deadlock, landing-level detection, no latch)"
+          # Delete the old Release, its tag and assets so the asset stays unique
           gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$TAG" \
             --title "$TITLE" \
             --notes-file PATCH_NOTES.md \
             --target main \
             "$JAR"
-          echo "Release 就绪: $TAG"
+          echo "Release ready: $TAG"

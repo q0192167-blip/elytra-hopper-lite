@@ -13,16 +13,16 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 /**
- * Elytra Hopper Lite —— 落地后只重开一次滑翔，带冷却，不会高频切换。
+ * Elytra Hopper Lite - re-open gliding only once after landing, with a cooldown, no high-frequency switching.
  */
 public class ElytraHopperLite implements ClientModInitializer {
 
     public static final String MOD_ID = "elytra_hopper_lite";
 
     private static boolean enabled = true;
-    /** 距离上次重开滑翔还剩多少 tick */
+    /** Ticks remaining until gliding can be re-opened again */
     private static int cooldown = 0;
-    /** 跳跃后等几 tick 再开滑翔（必须离地） */
+    /** Ticks to wait after jumping before opening gliding (must be airborne) */
     private static int pending = 0;
 
     private static KeyMapping toggleKey;
@@ -56,17 +56,17 @@ public class ElytraHopperLite implements ClientModInitializer {
             return;
         }
 
-        // 落水收翅（方便游泳）
+        // Close wings in water (easier swimming)
         if (player.isInWater() && player.isFallFlying()) {
             player.stopFallFlying();
             return;
         }
 
-        // 起跳：在落地状态按下跳跃，且冷却已好
+        // Takeoff: jump pressed while on the ground and cooldown is ready
         boolean jumpDown = mc.options.keyJump.isDown();
         if (pending == 0 && cooldown == 0 && jumpDown
                 && player.onGround() && hasElytra(player) && !player.isFallFlying()) {
-            pending = 2; // 跳起后 2 tick 再开滑翔，此时已离地
+            pending = 2; // open gliding 2 ticks after jumping, once airborne
         }
 
         if (pending > 0) {
@@ -74,7 +74,7 @@ public class ElytraHopperLite implements ClientModInitializer {
             if (pending == 0 && cooldown == 0 && !player.onGround()
                     && !player.isFallFlying() && hasElytra(player)) {
                 player.startFallFlying();
-                cooldown = 20; // 1 秒内绝不再重开
+                cooldown = 20; // never re-open within 1 second
             }
         }
     }
